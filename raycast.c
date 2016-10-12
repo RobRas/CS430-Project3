@@ -7,6 +7,7 @@
 #define PLANE 0
 #define SPHERE 1
 #define CAMERA 2
+#define LIGHT 3
 
 #define MAX_COLOR_VALUE 255
 
@@ -24,7 +25,7 @@ typedef struct {
 typedef struct {
   int kind; // 0 = Plane, 1 = Sphere
   double color[3];
-  double location[3];
+  double position[3];
   union {
     struct {
       double normal[3];
@@ -32,12 +33,18 @@ typedef struct {
     struct {
       double radius;
     } sphere;
+    struct {
+      double direction[3];
+      double radialAtten[3];
+      double angularAtten;
+    } light;
   };
 } Object;
 
 Pixel* pixmap;
 Camera** camera;
 Object** objects;
+Object** lights;
 
 static inline double sqr(double v) {
   return v*v;
@@ -203,7 +210,7 @@ void parseObject(FILE* json, int currentObject, int objectType) {
           exit(1);
         }
       } else if (strcmp(key, "color") == 0) {
-        if (objectType == PLANE || objectType == SPHERE) {
+        if (objectType == PLANE || objectType == SPHERE || objectType == LIGHT) {
           double* v = nextVector(json);
           for (int i = 0; i < 3; i++) {
             if (v[i] < 0 || v[i] > 1) {
@@ -216,11 +223,11 @@ void parseObject(FILE* json, int currentObject, int objectType) {
           fprintf(stderr, "Error: Improper object field on line %d", line);
           exit(1);
         }
-      } else if (strcmp(key, "location") == 0) {
-        if (objectType == PLANE || objectType == SPHERE) {
+      } else if (strcmp(key, "position") == 0) {
+        if (objectType == PLANE || objectType == SPHERE || objectType == LIGHT) {
           double* v = nextVector(json);
           for (int i = 0; i < 3; i++) {
-            objects[currentObject]->location[i] = v[i];
+            objects[currentObject]->position[i] = v[i];
           }
         } else {
           fprintf(stderr, "Error: Improper object field on line %d", line);
@@ -233,6 +240,49 @@ void parseObject(FILE* json, int currentObject, int objectType) {
           for (int i = 0; i < 3; i++) {
             objects[currentObject]->plane.normal[i] = v[i];
           }
+        } else {
+          fprintf(stderr, "Error: Improper object field on line %d", line);
+          exit(1);
+        }
+      } else if (strcmp(key, "direction") == 0) {
+        if (objectType == LIGHT) {
+          double* v = nextVector(json);
+          normalize(v);
+          for (int i = 0; i < 3; i++) {
+            lights[currentObject]->light.direction[i] = v[i];
+          }
+        } else {
+          fprintf(stderr, "Error: Improper object field on line %d", line);
+          exit(1);
+        }
+      } else if (strcmp(key, "radial-a2") == 0) {
+        if (objectType == LIGHT) {
+          double rAtten2 = nextNumber(json);
+          lights[currentObject]->light.radialAtten[2] = rAtten2;
+        } else {
+          fprintf(stderr, "Error: Improper object field on line %d", line);
+          exit(1);
+        }
+      } else if (strcmp(key, "radial-a1") == 0) {
+        if (objectType == LIGHT) {
+          double rAtten1 = nextNumber(json);
+          lights[currentObject]->light.radialAtten[1] = rAtten1;
+        } else {
+          fprintf(stderr, "Error: Improper object field on line %d", line);
+          exit(1);
+        }
+      } else if (strcmp(key, "radial-a0") == 0) {
+        if (objectType == LIGHT) {
+          double rAtten0 = nextNumber(json);
+          lights[currentObject]->light.radialAtten[0] = rAtten0;
+        } else {
+          fprintf(stderr, "Error: Improper object field on line %d", line);
+          exit(1);
+        }
+      } else if (strcmp(key, "angular-a0") == 0) {
+        if (objectType == LIGHT) {
+          double aAtten = nextNumber(json);
+          lights[currentObject]->light.angularAtten = aAtten;
         } else {
           fprintf(stderr, "Error: Improper object field on line %d", line);
           exit(1);
@@ -267,6 +317,7 @@ void parseJSON(char* fileName) {
   skipWhitespace(json);
 
   int currentObject = 0;
+  int currentLight = 0;
   while (1) {
     c = fnextc(json);
     if (c == ']') {
@@ -310,6 +361,11 @@ void parseJSON(char* fileName) {
         objects[currentObject]->kind = PLANE;
         parseObject(json, currentObject, PLANE);
         currentObject++;
+      } else if (strcmp(value, "light") == 0) {
+        lights[currentLight] = malloc(sizeof(Object));
+        lights[currentLight]->kind = LIGHT;
+        parseObject(json, currentLight, LIGHT);
+        currentLight++;
       } else {
         fprintf(stderr, "Error: Unknown type, \"%s\", on line number %d.\n", value, line);
         exit(1);
@@ -325,6 +381,7 @@ void parseJSON(char* fileName) {
           exit(1);
         }
         objects[currentObject] = NULL;
+        lights[currentLight] = NULL;
         fclose(json);
         return;
       } else {
@@ -398,12 +455,12 @@ void createScene(int width, int height) {
         switch(objects[i]->kind) {
           case PLANE:
             t = planeIntersection(Ro, Rd,
-              objects[i]->location,
+              objects[i]->position,
               objects[i]->plane.normal);
             break;
           case SPHERE:
             t = sphereIntersection(Ro, Rd,
-              objects[i]->location,
+              objects[i]->position,
               objects[i]->sphere.radius);
             break;
           default:
@@ -438,11 +495,11 @@ void displayObjects() {
   while (objects[i] != NULL) {
     if (objects[i]->kind == PLANE) {
       printf("Plane:\n\tColor.r: %lf\n\tColor.g: %lf\n\tColor.b: %lf\n", objects[i]->color[0], objects[i]->color[1], objects[i]->color[2]);
-      printf("\tLocation.x: %lf\n\tLocation.y: %lf\n\tLocation.z: %lf\n", objects[i]->location[0], objects[i]->location[1], objects[i]->location[2]);
+      printf("\tPosition.x: %lf\n\tPosition.y: %lf\n\tPosition.z: %lf\n", objects[i]->position[0], objects[i]->position[1], objects[i]->position[2]);
       printf("\tNormal.x: %lf\n\tNormal.y: %lf\n\tNormal.z: %lf\n", objects[i]->plane.normal[0], objects[i]->plane.normal[1], objects[i]->plane.normal[2]);
     } else if (objects[i]->kind == SPHERE) {
       printf("Sphere:\n\tColor.r: %lf\n\tColor.g: %lf\n\tColor.b: %lf\n", objects[i]->color[0], objects[i]->color[1], objects[i]->color[2]);
-      printf("\tLocation.x: %lf\n\tLocation.y: %lf\n\tLocation.z: %lf\n", objects[i]->location[0], objects[i]->location[1], objects[i]->location[2]);
+      printf("\tPosition.x: %lf\n\tPosition.y: %lf\n\tPosition.z: %lf\n", objects[i]->position[0], objects[i]->position[1], objects[i]->position[2]);
       printf("\tRadius: %lf\n", objects[i]->sphere.radius);
     }
     i++;
