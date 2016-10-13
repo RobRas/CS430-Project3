@@ -213,10 +213,10 @@ void parseObject(FILE* json, int currentObject, int objectType) {
         if (objectType == PLANE || objectType == SPHERE || objectType == LIGHT) {
           double* v = nextVector(json);
           for (int i = 0; i < 3; i++) {
-            if (v[i] < 0 || v[i] > 1) {
-              fprintf(stderr, "Error: Color values must be between 0 and 1.\n");
-              exit(1);
-            }
+            // if (v[i] < 0 || v[i] > 1) {
+              // fprintf(stderr, "Error: Color values must be between 0 and 1.\n");
+              // exit(1);
+            // }
             objects[currentObject]->color[i] = v[i];
           }
         } else {
@@ -526,6 +526,7 @@ int main(int argc, char* argv[]) {
   pixmap = malloc(sizeof(Pixel) * width * height);
   camera = malloc(sizeof(Camera));
   objects = malloc(sizeof(Object*) * 129);
+  lights = malloc(sizeof(Object*) * 129);
 
   parseJSON(argv[3]);
   createScene(width, height);
