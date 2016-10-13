@@ -216,20 +216,30 @@ void parseObject(FILE* json, int currentObject, int objectType) {
           exit(1);
         }
       } else if (strcmp(key, "color") == 0) {
-        if (objectType == PLANE || objectType == SPHERE || objectType == LIGHT) {
+        if (objectType == PLANE || objectType == SPHERE) {
           double* v = nextVector(json);
           for (int i = 0; i < 3; i++) {
             objects[currentObject]->color[i] = v[i];
+          }
+        } else if (objectType == LIGHT) {
+          double* v = nextVector(json);
+          for (int i = 0; i < 3; i++) {
+            lights[currentObject]->color[i] = v[i];
           }
         } else {
           fprintf(stderr, "Error: Improper object field on line %d", line);
           exit(1);
         }
       } else if (strcmp(key, "position") == 0) {
-        if (objectType == PLANE || objectType == SPHERE || objectType == LIGHT) {
+        if (objectType == PLANE || objectType == SPHERE) {
           double* v = nextVector(json);
           for (int i = 0; i < 3; i++) {
             objects[currentObject]->position[i] = v[i];
+          }
+        } else if (objectType == LIGHT) {
+          double* v = nextVector(json);
+          for (int i = 0; i < 3; i++) {
+            lights[currentObject]->position[i] = v[i];
           }
         } else {
           fprintf(stderr, "Error: Improper object field on line %d", line);
