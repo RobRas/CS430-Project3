@@ -65,10 +65,20 @@ static inline double magnitude(double* v) {
   return sqrt(sqr(v[0]) + sqr(v[1]) + sqr(v[2]));
 }
 
-static inline double clamp(double value, double min, double max) {
+double clamp(double value, double min, double max) {
   if (value < min) return min;
   if (value > max) return max;
   return value;
+}
+
+double* reflect(double* v, double* n) {
+  double dotResult = nod(n, v);
+  double r[3] = {
+    v[0] - 2 * dotResult * n[0];
+    v[1] - 2 * dotResult * n[1];
+    v[2] - 2 * dotResult * n[3];
+  }
+  return r;
 }
 
 
@@ -434,12 +444,38 @@ double sphereIntersection(double* Ro, double* Rd, double* P, double r) {
   return -1;
 }
 
-double angularAttenuation() {
-  return 0;
+double angularAttenuation(double* Vo, double* Vl, double a1, double angle) {
+  double dotResult = dot(Vo, Vl);
+  if (acos(dotResult) > angle) {
+    return 0;
+  } else {
+    return pow(dotResult, a1);
+  }
 }
 
 double radiasAttenuation(double a2, double a1, double a0, double d) {
   return 1 / (a2 * square(d) + a1 * d + a0);
+}
+
+double diffuseReflection(double ka, double ia, double kd, double il, double* n, double* l) {
+  double dotResult = dot(n, l);
+  if (dotResult > 0) {
+    return ka * ia + kd * il * dotResult;
+  } else {
+    return ka * ia;
+  }
+}
+
+double specularReflection(double ks, double il, double* v, double* r, double* n, double* l) {
+  double ns = 1;
+  double vrDot = dot(v, r);
+  double nlDot = dot(n, l);
+
+  if (vrDot > 0 && nlDot > 0) {
+    return ks * il * pow(vrDot, ns)
+  } else {
+    return 0;
+  }
 }
 
 void createScene(int width, int height) {
@@ -531,20 +567,20 @@ void createScene(int width, int height) {
             shadow = 1;
             break;
           }
-
-          double* N = malloc(sizeof(double) * 3);
-          if (closestObject->kind == PLANE) {
-            N = closestObject->plane.normal;
-          } else if (closestObject->kind == SPHERE) {
-            N[0] = RoNew[0] - closestObject->position[0];
-            N[1] = RoNew[1] - closestObject->position[1];
-            N[2] = RoNew[2] - closestObject->position[2];
-          }
-
-          double* L = RdNew;
-
-          double* D = Rd;
         }
+
+        double* N = malloc(sizeof(double) * 3);
+        if (closestObject->kind == PLANE) {
+          N = closestObject->plane.normal;
+        } else if (closestObject->kind == SPHERE) {
+          N[0] = RoNew[0] - closestObject->position[0];
+          N[1] = RoNew[1] - closestObject->position[1];
+          N[2] = RoNew[2] - closestObject->position[2];
+        }
+
+        double* L = RdNew;
+        double* R = reflect(L, N);
+        double* D = Rd;
       }
 
       if (closestObject != NULL) {
