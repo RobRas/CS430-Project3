@@ -23,7 +23,7 @@ typedef struct {
 } Camera;
 
 typedef struct {
-  int kind; // 0 = Plane, 1 = Sphere
+  int kind; // 0 = Plane, 1 = Sphere, 2 = Camera, 3 = Light
   double color[3];
   double position[3];
   union {
@@ -434,6 +434,14 @@ double sphereIntersection(double* Ro, double* Rd, double* P, double r) {
   return -1;
 }
 
+double angularAttenuation() {
+  return 0;
+}
+
+double radiasAttenuation(double a2, double a1, double a0, double d) {
+  return 1 / (a2 * square(d) + a1 * d + a0);
+}
+
 void createScene(int width, int height) {
   double cx = 0;
   double cy = 0;
@@ -456,8 +464,8 @@ void createScene(int width, int height) {
       };
       normalize(Rd);
 
-      double best_t = INFINITY;
-      Object* bestObject = NULL;
+      double closestT = INFINITY;
+      Object* closestObject = NULL;
       for (int i = 0; objects[i] != NULL; i++) {
         double t = 0;
 
@@ -477,15 +485,72 @@ void createScene(int width, int height) {
             exit(1);
         }
 
-        if (t > 0 && t < best_t) {
-          best_t = t;
-          bestObject = objects[i];
+        if (t > 0 && t < closestT) {
+          closestT = t;
+          closestObject = objects[i];
         }
       }
-      if (bestObject != NULL) {
-        pixmap[(M - 1) * N - (y * N) + x].r = (unsigned char)(clamp(bestObject->color[0], 0, 1) * MAX_COLOR_VALUE);
-        pixmap[(M - 1) * N - (y * N) + x].g = (unsigned char)(clamp(bestObject->color[1], 0, 1) * MAX_COLOR_VALUE);
-        pixmap[(M - 1) * N - (y * N) + x].b = (unsigned char)(clamp(bestObject->color[2], 0, 1) * MAX_COLOR_VALUE);
+
+      double color[3];
+      color[0] = 0;
+      color[1] = 0;
+      color[2] = 0;
+
+      for (int i = 0; lights[i] != NULL; i++) {
+        double RoNew[3] = {
+          closestT * Rd[0] + Ro[0],
+          closestT * Rd[1] + Ro[1],
+          closestT * Rd[2] + Ro[2]
+        };
+        double RdNew[3] = {
+          lights[i]->position[0] - RoNew[0],
+          lights[i]->position[1] - RoNew[1],
+          lights[i]->position[2] - RoNew[2]
+        };
+
+        int shadow = 0;
+        for (int j = 0; objects[j] != NULL; j++) {
+          double t = 0;
+          if (objects[j] == closestObject) continue;
+          switch(objects[j]->kind) {
+            case PLANE:
+              t = planeIntersection(Ro, Rd,
+                objects[j]->position,
+                objects[j]->plane.normal);
+              break;
+            case SPHERE:
+              t = sphereIntersection(Ro, Rd,
+                objects[j]->position,
+                objects[j]->sphere.radius);
+              break;
+            default:
+              fprintf(stderr, "Error: Object does not have an appropriate kind.");
+              exit(1);
+          }
+          if (t > 0 && t < magnitude(RdNew)) {
+            shadow = 1;
+            break;
+          }
+
+          double* N = malloc(sizeof(double) * 3);
+          if (closestObject->kind == PLANE) {
+            N = closestObject->plane.normal;
+          } else if (closestObject->kind == SPHERE) {
+            N[0] = RoNew[0] - closestObject->position[0];
+            N[1] = RoNew[1] - closestObject->position[1];
+            N[2] = RoNew[2] - closestObject->position[2];
+          }
+
+          double* L = RdNew;
+
+          double* D = Rd;
+        }
+      }
+
+      if (closestObject != NULL) {
+        pixmap[(M - 1) * N - (y * N) + x].r = (unsigned char)(clamp(closestObject->color[0], 0, 1) * MAX_COLOR_VALUE);
+        pixmap[(M - 1) * N - (y * N) + x].g = (unsigned char)(clamp(closestObject->color[1], 0, 1) * MAX_COLOR_VALUE);
+        pixmap[(M - 1) * N - (y * N) + x].b = (unsigned char)(clamp(closestObject->color[2], 0, 1) * MAX_COLOR_VALUE);
       } else {
         pixmap[(M - 1) * N - (y * N) + x].r = 0;
         pixmap[(M - 1) * N - (y * N) + x].g = 0;
