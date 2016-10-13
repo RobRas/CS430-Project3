@@ -65,6 +65,12 @@ static inline double magnitude(double* v) {
   return sqrt(sqr(v[0]) + sqr(v[1]) + sqr(v[2]));
 }
 
+static inline double clamp(double value, double min, double max) {
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
+
 
 // Wraps the getc() function and provides error checking and
 // number maintenance
@@ -213,10 +219,6 @@ void parseObject(FILE* json, int currentObject, int objectType) {
         if (objectType == PLANE || objectType == SPHERE || objectType == LIGHT) {
           double* v = nextVector(json);
           for (int i = 0; i < 3; i++) {
-            // if (v[i] < 0 || v[i] > 1) {
-              // fprintf(stderr, "Error: Color values must be between 0 and 1.\n");
-              // exit(1);
-            // }
             objects[currentObject]->color[i] = v[i];
           }
         } else {
@@ -444,11 +446,8 @@ void createScene(int width, int height) {
       };
       normalize(Rd);
 
-      pixmap[(M - 1) * N - (y * N) + x].r = 0;
-      pixmap[(M - 1) * N - (y * N) + x].g = 0;
-      pixmap[(M - 1) * N - (y * N) + x].b = 0;
-
       double best_t = INFINITY;
+      Object* bestObject = NULL;
       for (int i = 0; objects[i] != NULL; i++) {
         double t = 0;
 
@@ -470,10 +469,17 @@ void createScene(int width, int height) {
 
         if (t > 0 && t < best_t) {
           best_t = t;
-          pixmap[(M - 1) * N - (y * N) + x].r = (unsigned char)(objects[i]->color[0] * MAX_COLOR_VALUE);
-          pixmap[(M - 1) * N - (y * N) + x].g = (unsigned char)(objects[i]->color[1] * MAX_COLOR_VALUE);
-          pixmap[(M - 1) * N - (y * N) + x].b = (unsigned char)(objects[i]->color[2] * MAX_COLOR_VALUE);
+          bestObject = objects[i];
         }
+      }
+      if (bestObject != NULL) {
+        pixmap[(M - 1) * N - (y * N) + x].r = (unsigned char)(clamp(bestObject->color[0], 0, 1) * MAX_COLOR_VALUE);
+        pixmap[(M - 1) * N - (y * N) + x].g = (unsigned char)(clamp(bestObject->color[1], 0, 1) * MAX_COLOR_VALUE);
+        pixmap[(M - 1) * N - (y * N) + x].b = (unsigned char)(clamp(bestObject->color[2], 0, 1) * MAX_COLOR_VALUE);
+      } else {
+        pixmap[(M - 1) * N - (y * N) + x].r = 0;
+        pixmap[(M - 1) * N - (y * N) + x].g = 0;
+        pixmap[(M - 1) * N - (y * N) + x].b = 0;
       }
     }
   }
