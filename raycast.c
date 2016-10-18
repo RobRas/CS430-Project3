@@ -24,7 +24,8 @@ typedef struct {
 
 typedef struct {
   int kind; // 0 = Plane, 1 = Sphere, 2 = Camera, 3 = Light
-  double color[3];
+  double diffuseColor[3];
+  double specularColor[3];
   double position[3];
   union {
     struct {
@@ -33,18 +34,21 @@ typedef struct {
     struct {
       double radius;
     } sphere;
-    struct {
-      double direction[3];
-      double radialAtten[3];
-      double angularAtten;
-    } light;
   };
 } Object;
+
+typedef struct {
+  double color[3];
+  double position[3];
+  double direction[3];
+  double radialAtten[3];
+  double angularAtten;
+} Light;
 
 Pixel* pixmap;
 Camera** camera;
 Object** objects;
-Object** lights;
+Light** lights;
 
 static inline double sqr(double v) {
   return v*v;
@@ -65,20 +69,29 @@ static inline double magnitude(double* v) {
   return sqrt(sqr(v[0]) + sqr(v[1]) + sqr(v[2]));
 }
 
+static inline void subtract(double* v1, double* v2) {
+  v1[0] -= v2[0];
+  v1[1] -= v2[1];
+  v1[2] -= v2[2];
+}
+
 double clamp(double value, double min, double max) {
   if (value < min) return min;
   if (value > max) return max;
   return value;
 }
 
-double* reflect(double* v, double* n) {
-  double dotResult = nod(n, v);
-  double r[3] = {
-    v[0] - 2 * dotResult * n[0];
-    v[1] - 2 * dotResult * n[1];
-    v[2] - 2 * dotResult * n[3];
-  }
-  return r;
+void reflect(double* v, double* n, double* r) {
+  double dotResult = dot(n, v);
+  r[0] = v[0] - 2 * dotResult * n[0];
+  r[1] = v[1] - 2 * dotResult * n[1];
+  r[2] = v[2] - 2 * dotResult * n[3];
+}
+
+void negate(double* v) {
+  v[0] = -v[0];
+  v[1] = -v[1];
+  v[2] = -v[2];
 }
 
 
@@ -174,10 +187,33 @@ double* nextVector(FILE* json) {
 
 void parseObject(FILE* json, int currentObject, int objectType) {
   int c;
+
+  if (objectType == LIGHT) {
+    lights[currentObject]->direction[0] = 0;
+    lights[currentObject]->direction[1] = 0;
+    lights[currentObject]->direction[2] = 0;
+    lights[currentObject]->radialAtten[0] = INFINITY;
+    lights[currentObject]->radialAtten[1] = INFINITY;
+    lights[currentObject]->radialAtten[2] = INFINITY;
+    lights[currentObject]->angularAtten = INFINITY;
+  }
+
   while (1) {
     c = fnextc(json);
     if (c == '}') {
       // Stop parsing this object
+
+      if (lights[currentObject]->radialAtten[0] != INFINITY || lights[currentObject]->radialAtten[1] != INFINITY || lights[currentObject]->radialAtten[2] != INFINITY) {
+        if (lights[currentObject]->radialAtten[0] == INFINITY) {
+          lights[currentObject]->radialAtten[0] = 0;
+        }
+        if (lights[currentObject]->radialAtten[1] == INFINITY) {
+          lights[currentObject]->radialAtten[1] = 0;
+        }
+        if (lights[currentObject]->radialAtten[2] == INFINITY) {
+          lights[currentObject]->radialAtten[2] = 1;
+        }
+      }
       break;
     } else if (c == ',') {
       skipWhitespace(json);
@@ -226,15 +262,30 @@ void parseObject(FILE* json, int currentObject, int objectType) {
           exit(1);
         }
       } else if (strcmp(key, "color") == 0) {
-        if (objectType == PLANE || objectType == SPHERE) {
-          double* v = nextVector(json);
-          for (int i = 0; i < 3; i++) {
-            objects[currentObject]->color[i] = v[i];
-          }
-        } else if (objectType == LIGHT) {
+        if (objectType == LIGHT) {
           double* v = nextVector(json);
           for (int i = 0; i < 3; i++) {
             lights[currentObject]->color[i] = v[i];
+          }
+        } else {
+          fprintf(stderr, "Error: Improper object field on line %d", line);
+          exit(1);
+        }
+      } else if (strcmp(key, "diffuse_color") == 0) {
+        if (objectType == PLANE || objectType == SPHERE) {
+          double* v = nextVector(json);
+          for (int i = 0; i < 3; i++) {
+            objects[currentObject]->diffuseColor[i] = v[i];
+          }
+        } else {
+          fprintf(stderr, "Error: Improper object field on line %d", line);
+          exit(1);
+        }
+      }  else if (strcmp(key, "specular_color") == 0) {
+        if (objectType == PLANE || objectType == SPHERE) {
+          double* v = nextVector(json);
+          for (int i = 0; i < 3; i++) {
+            objects[currentObject]->specularColor[i] = v[i];
           }
         } else {
           fprintf(stderr, "Error: Improper object field on line %d", line);
@@ -271,7 +322,7 @@ void parseObject(FILE* json, int currentObject, int objectType) {
           double* v = nextVector(json);
           normalize(v);
           for (int i = 0; i < 3; i++) {
-            lights[currentObject]->light.direction[i] = v[i];
+            lights[currentObject]->direction[i] = v[i];
           }
         } else {
           fprintf(stderr, "Error: Improper object field on line %d", line);
@@ -280,7 +331,7 @@ void parseObject(FILE* json, int currentObject, int objectType) {
       } else if (strcmp(key, "radial-a2") == 0) {
         if (objectType == LIGHT) {
           double rAtten2 = nextNumber(json);
-          lights[currentObject]->light.radialAtten[2] = rAtten2;
+          lights[currentObject]->radialAtten[2] = rAtten2;
         } else {
           fprintf(stderr, "Error: Improper object field on line %d", line);
           exit(1);
@@ -288,7 +339,7 @@ void parseObject(FILE* json, int currentObject, int objectType) {
       } else if (strcmp(key, "radial-a1") == 0) {
         if (objectType == LIGHT) {
           double rAtten1 = nextNumber(json);
-          lights[currentObject]->light.radialAtten[1] = rAtten1;
+          lights[currentObject]->radialAtten[1] = rAtten1;
         } else {
           fprintf(stderr, "Error: Improper object field on line %d", line);
           exit(1);
@@ -296,7 +347,7 @@ void parseObject(FILE* json, int currentObject, int objectType) {
       } else if (strcmp(key, "radial-a0") == 0) {
         if (objectType == LIGHT) {
           double rAtten0 = nextNumber(json);
-          lights[currentObject]->light.radialAtten[0] = rAtten0;
+          lights[currentObject]->radialAtten[0] = rAtten0;
         } else {
           fprintf(stderr, "Error: Improper object field on line %d", line);
           exit(1);
@@ -304,7 +355,7 @@ void parseObject(FILE* json, int currentObject, int objectType) {
       } else if (strcmp(key, "angular-a0") == 0) {
         if (objectType == LIGHT) {
           double aAtten = nextNumber(json);
-          lights[currentObject]->light.angularAtten = aAtten;
+          lights[currentObject]->angularAtten = aAtten;
         } else {
           fprintf(stderr, "Error: Improper object field on line %d", line);
           exit(1);
@@ -384,8 +435,7 @@ void parseJSON(char* fileName) {
         parseObject(json, currentObject, PLANE);
         currentObject++;
       } else if (strcmp(value, "light") == 0) {
-        lights[currentLight] = malloc(sizeof(Object));
-        lights[currentLight]->kind = LIGHT;
+        lights[currentLight] = malloc(sizeof(Light));
         parseObject(json, currentLight, LIGHT);
         currentLight++;
       } else {
@@ -445,16 +495,32 @@ double sphereIntersection(double* Ro, double* Rd, double* P, double r) {
 }
 
 double angularAttenuation(double* Vo, double* Vl, double a1, double angle) {
+  if (a1 == INFINITY) {
+    return 1;
+  }
   double dotResult = dot(Vo, Vl);
-  if (acos(dotResult) > angle) {
+  printf("%lf\n", dotResult);
+  if (acos(dotResult) > angle / 2) {
     return 0;
   } else {
     return pow(dotResult, a1);
   }
 }
 
-double radiasAttenuation(double a2, double a1, double a0, double d) {
-  return 1 / (a2 * square(d) + a1 * d + a0);
+double radialAttenuation(double a2, double a1, double a0, double d) {
+  if (a2 == INFINITY) {
+    return 0;
+  }
+  double quotient = a2 * sqr(d) + a1 * d + a0;
+  if (quotient == 0) {
+    return 0;
+  }
+  if (d == INFINITY) {
+    return 1;
+  } else {
+    printf("%lf\n", 1.0 / quotient);
+    return 1.0 / quotient;
+  }
 }
 
 double diffuseReflection(double ka, double ia, double kd, double il, double* n, double* l) {
@@ -472,7 +538,7 @@ double specularReflection(double ks, double il, double* v, double* r, double* n,
   double nlDot = dot(n, l);
 
   if (vrDot > 0 && nlDot > 0) {
-    return ks * il * pow(vrDot, ns)
+    return ks * il * pow(vrDot, ns);
   } else {
     return 0;
   }
@@ -527,67 +593,109 @@ void createScene(int width, int height) {
         }
       }
 
-      double color[3];
-      color[0] = 0;
-      color[1] = 0;
-      color[2] = 0;
+      if (closestT < INFINITY) {
+        double color[3];
+        color[0] = 0;
+        color[1] = 0;
+        color[2] = 0;
 
-      for (int i = 0; lights[i] != NULL; i++) {
-        double RoNew[3] = {
-          closestT * Rd[0] + Ro[0],
-          closestT * Rd[1] + Ro[1],
-          closestT * Rd[2] + Ro[2]
-        };
-        double RdNew[3] = {
-          lights[i]->position[0] - RoNew[0],
-          lights[i]->position[1] - RoNew[1],
-          lights[i]->position[2] - RoNew[2]
-        };
+        for (int i = 0; lights[i] != NULL; i++) {
+          double RoNew[3] = {
+            closestT * Rd[0] + Ro[0],
+            closestT * Rd[1] + Ro[1],
+            closestT * Rd[2] + Ro[2]
+          };
+          double RdNew[3] = {
+            lights[i]->position[0] - RoNew[0],
+            lights[i]->position[1] - RoNew[1],
+            lights[i]->position[2] - RoNew[2]
+          };
 
-        int shadow = 0;
-        for (int j = 0; objects[j] != NULL; j++) {
-          double t = 0;
-          if (objects[j] == closestObject) continue;
-          switch(objects[j]->kind) {
-            case PLANE:
-              t = planeIntersection(Ro, Rd,
-                objects[j]->position,
-                objects[j]->plane.normal);
+          int shadow = 0;
+          for (int j = 0; objects[j] != NULL; j++) {
+            double t = 0;
+            if (objects[j] == closestObject) continue;
+            switch(objects[j]->kind) {
+              case PLANE:
+                t = planeIntersection(RoNew, RdNew,
+                  objects[j]->position,
+                  objects[j]->plane.normal);
+                break;
+              case SPHERE:
+                t = sphereIntersection(RoNew, RdNew,
+                  objects[j]->position,
+                  objects[j]->sphere.radius);
+                break;
+              default:
+                fprintf(stderr, "Error: Object does not have an appropriate kind.");
+                exit(1);
+            }
+            if (t > 0 && t < magnitude(RdNew)) {
+              shadow = 1;
               break;
-            case SPHERE:
-              t = sphereIntersection(Ro, Rd,
-                objects[j]->position,
-                objects[j]->sphere.radius);
-              break;
-            default:
-              fprintf(stderr, "Error: Object does not have an appropriate kind.");
-              exit(1);
+            }
           }
-          if (t > 0 && t < magnitude(RdNew)) {
-            shadow = 1;
-            break;
+
+          if (shadow == 0) {
+            double* N = malloc(sizeof(double) * 3);
+            if (closestObject->kind == PLANE) {
+              N = closestObject->plane.normal;
+            } else if (closestObject->kind == SPHERE) {
+              N[0] = RoNew[0] - closestObject->position[0];
+              N[1] = RoNew[1] - closestObject->position[1];
+              N[2] = RoNew[2] - closestObject->position[2];
+            }
+
+            double* L = RdNew;
+            normalize(L);
+            double R[3];
+            reflect(L, N, R);
+            double* V = Rd;
+
+            double* pos = lights[i]->position;
+            subtract(pos, RoNew);
+            double d = magnitude(pos);
+
+            /*
+            if (lights[i]->direction[0] != 0 || lights[i]->direction[1] != 0 || lights[i]->direction[2] != 0) {
+              printf("%lf\n", acos(dot(LNeg, lights[i]->direction)));
+              if (acos(dot(LNeg, lights[i]->direction)) <= 0.3) {
+                color[0] = -(dot(LNeg, N)) * lights[i]->color[0];
+                color[1] = -(dot(LNeg, N)) * lights[i]->color[1];
+                color[2] = -(dot(LNeg, N)) * lights[i]->color[2];
+              }
+            } else {
+              color[0] = -(dot(LNeg, N)) * lights[i]->color[0];
+              color[1] = -(dot(LNeg, N)) * lights[i]->color[1];
+              color[2] = -(dot(LNeg, N)) * lights[i]->color[2];
+            }
+            */
+            double col;
+            for (int c = 0; c < 3; c++) {
+              col = 1;
+              if (lights[i]->angularAtten != INFINITY) {
+                col *= angularAttenuation(L, lights[i]->direction, lights[i]->angularAtten, .523599);
+              }
+              if (lights[i]->radialAtten[0] != INFINITY) {
+                col *= radialAttenuation(lights[i]->radialAtten[2], lights[i]->radialAtten[1], lights[i]->radialAtten[0], d);
+              }
+              col *= (closestObject->diffuseColor[c] * lights[i]->color[c] * dot(N, L) + closestObject->specularColor[c] * lights[i]->color[c] * pow(dot(R, V), 50));
+              color[c] += col;
+            }
+
+            free(N);
           }
         }
-
-        double* N = malloc(sizeof(double) * 3);
-        if (closestObject->kind == PLANE) {
-          N = closestObject->plane.normal;
-        } else if (closestObject->kind == SPHERE) {
-          N[0] = RoNew[0] - closestObject->position[0];
-          N[1] = RoNew[1] - closestObject->position[1];
-          N[2] = RoNew[2] - closestObject->position[2];
-        }
-
-        double* L = RdNew;
-        double* R = reflect(L, N);
-        double* D = Rd;
-      }
-
-      if (closestObject != NULL) {
-        pixmap[(M - 1) * N - (y * N) + x].r = (unsigned char)(clamp(closestObject->color[0], 0, 1) * MAX_COLOR_VALUE);
-        pixmap[(M - 1) * N - (y * N) + x].g = (unsigned char)(clamp(closestObject->color[1], 0, 1) * MAX_COLOR_VALUE);
-        pixmap[(M - 1) * N - (y * N) + x].b = (unsigned char)(clamp(closestObject->color[2], 0, 1) * MAX_COLOR_VALUE);
-      } else {
+        if (closestObject != NULL) {
+          pixmap[(M - 1) * N - (y * N) + x].r = (unsigned char)(clamp(color[0], 0, 1) * MAX_COLOR_VALUE);
+          pixmap[(M - 1) * N - (y * N) + x].g = (unsigned char)(clamp(color[1], 0, 1) * MAX_COLOR_VALUE);
+          pixmap[(M - 1) * N - (y * N) + x].b = (unsigned char)(clamp(color[2], 0, 1) * MAX_COLOR_VALUE);
+        }  else {
+            pixmap[(M - 1) * N - (y * N) + x].r = 0;
+            pixmap[(M - 1) * N - (y * N) + x].g = 0;
+            pixmap[(M - 1) * N - (y * N) + x].b = 0;
+          }
+    } else {
         pixmap[(M - 1) * N - (y * N) + x].r = 0;
         pixmap[(M - 1) * N - (y * N) + x].g = 0;
         pixmap[(M - 1) * N - (y * N) + x].b = 0;
@@ -604,23 +712,6 @@ void writeP6(char* outputPath, int width, int height) {
   fprintf(fh, "P6\n# Converted with Robert Rasmussen's ppmrw\n%d %d\n%d\n", width, height, MAX_COLOR_VALUE);
   fwrite(pixmap, sizeof(Pixel), width*height, fh);
   fclose(fh);
-}
-
-void displayObjects() {
-  printf("Camera:\n\tWidth: %lf\n\tHeight: %lf\n", camera[0]->width, camera[0]->height);
-  int i = 0;
-  while (objects[i] != NULL) {
-    if (objects[i]->kind == PLANE) {
-      printf("Plane:\n\tColor.r: %lf\n\tColor.g: %lf\n\tColor.b: %lf\n", objects[i]->color[0], objects[i]->color[1], objects[i]->color[2]);
-      printf("\tPosition.x: %lf\n\tPosition.y: %lf\n\tPosition.z: %lf\n", objects[i]->position[0], objects[i]->position[1], objects[i]->position[2]);
-      printf("\tNormal.x: %lf\n\tNormal.y: %lf\n\tNormal.z: %lf\n", objects[i]->plane.normal[0], objects[i]->plane.normal[1], objects[i]->plane.normal[2]);
-    } else if (objects[i]->kind == SPHERE) {
-      printf("Sphere:\n\tColor.r: %lf\n\tColor.g: %lf\n\tColor.b: %lf\n", objects[i]->color[0], objects[i]->color[1], objects[i]->color[2]);
-      printf("\tPosition.x: %lf\n\tPosition.y: %lf\n\tPosition.z: %lf\n", objects[i]->position[0], objects[i]->position[1], objects[i]->position[2]);
-      printf("\tRadius: %lf\n", objects[i]->sphere.radius);
-    }
-    i++;
-  }
 }
 
 int main(int argc, char* argv[]) {
@@ -643,7 +734,7 @@ int main(int argc, char* argv[]) {
   pixmap = malloc(sizeof(Pixel) * width * height);
   camera = malloc(sizeof(Camera));
   objects = malloc(sizeof(Object*) * 129);
-  lights = malloc(sizeof(Object*) * 129);
+  lights = malloc(sizeof(Light*) * 129);
 
   parseJSON(argv[3]);
   createScene(width, height);
