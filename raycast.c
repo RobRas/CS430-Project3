@@ -537,7 +537,6 @@ double sphereIntersection(const double* Ro, const double* Rd, const double* P, d
 
 double angularAttenuation(const double* Vo, const double* Vl, double a1, double angle) {
   double dotResult = dot(Vo, Vl);
-  printf("%lf\n", acos(dotResult));
   if (acos(dotResult) > angle / 2) {
     return 0;
   } else {
