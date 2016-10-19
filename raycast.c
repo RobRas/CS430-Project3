@@ -43,12 +43,17 @@ typedef struct {
   double direction[3];
   double radialAtten[3];
   double angularAtten;
+  double theta;
 } Light;
 
 Pixel* pixmap;
 Camera** camera;
 Object** objects;
 Light** lights;
+
+static inline double degreesToRads(double d) {
+  return d * 0.0174533;
+}
 
 static inline double sqr(double v) {
   return v*v;
@@ -61,15 +66,15 @@ static inline void normalize(double* v) {
   v[2] /= len;
 }
 
-static inline double dot(double* a, double* b) {
+static inline double dot(const double* a, const double* b) {
   return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
 }
 
-static inline double magnitude(double* v) {
+static inline double magnitude(const double* v) {
   return sqrt(sqr(v[0]) + sqr(v[1]) + sqr(v[2]));
 }
 
-static inline void subtract(double* v1, double* v2) {
+static inline void subtract(double* v1, const double* v2) {
   v1[0] -= v2[0];
   v1[1] -= v2[1];
   v1[2] -= v2[2];
@@ -81,11 +86,25 @@ double clamp(double value, double min, double max) {
   return value;
 }
 
-void reflect(double* v, double* n, double* r) {
-  double dotResult = dot(n, v);
-  r[0] = v[0] - 2 * dotResult * n[0];
-  r[1] = v[1] - 2 * dotResult * n[1];
-  r[2] = v[2] - 2 * dotResult * n[3];
+void scale(double*v, double s) {
+  v[0] *= s;
+  v[1] *= s;
+  v[2] *= s;
+}
+
+void reflect(const double* v, const double* n, double* r) {
+  double dotResult = dot(v, n);
+  dotResult *= 2;
+  double nNew[3] = {
+    n[0],
+    n[1],
+    n[2]
+  };
+  scale(nNew, dotResult);
+  r[0] = v[0];
+  r[1] = v[1];
+  r[2] = v[2];
+  subtract(r, nNew);
 }
 
 void negate(double* v) {
@@ -188,6 +207,12 @@ double* nextVector(FILE* json) {
 void parseObject(FILE* json, int currentObject, int objectType) {
   int c;
 
+  if (objectType == SPHERE || objectType == PLANE) {
+    objects[currentObject]->specularColor[0] = 0;
+    objects[currentObject]->specularColor[1] = 0;
+    objects[currentObject]->specularColor[2] = 0;
+  }
+
   if (objectType == LIGHT) {
     lights[currentObject]->direction[0] = 0;
     lights[currentObject]->direction[1] = 0;
@@ -196,6 +221,7 @@ void parseObject(FILE* json, int currentObject, int objectType) {
     lights[currentObject]->radialAtten[1] = INFINITY;
     lights[currentObject]->radialAtten[2] = INFINITY;
     lights[currentObject]->angularAtten = INFINITY;
+    lights[currentObject]->theta = 0;
   }
 
   while (1) {
@@ -360,6 +386,14 @@ void parseObject(FILE* json, int currentObject, int objectType) {
           fprintf(stderr, "Error: Improper object field on line %d", line);
           exit(1);
         }
+      } else if (strcmp(key, "theta") == 0) {
+        if (objectType == LIGHT) {
+          double theta = nextNumber(json);
+          lights[currentObject]->theta = theta;
+        } else {
+          fprintf(stderr, "Error: Improper object field on line %d", line);
+          exit(1);
+        }
       } else {
         fprintf(stderr, "Error: Unknown property, \"%s\", on line %d.\n", key, line);
         exit(1);
@@ -467,7 +501,7 @@ void parseJSON(char* fileName) {
   }
 }
 
-double planeIntersection(double* Ro, double* Rd, double* P, double* N) {
+double planeIntersection(const double* Ro, const double* Rd, const double* P, const double* N) {
   double d = -dot(N, P);
   double Vd = dot(N, Rd);
   if (Vd == 0) return -1;
@@ -477,7 +511,7 @@ double planeIntersection(double* Ro, double* Rd, double* P, double* N) {
   return t;
 }
 
-double sphereIntersection(double* Ro, double* Rd, double* P, double r) {
+double sphereIntersection(const double* Ro, const double* Rd, const double* P, double r) {
   double A = sqr(Rd[0]) + sqr(Rd[1]) + sqr(Rd[2]);
   double B = 2 * (Rd[0] * (Ro[0] - P[0]) + Rd[1] * (Ro[1] - P[1]) + Rd[2] * (Ro[2] - P[2]));
   double C = sqr(Ro[0] - P[0]) + sqr(Ro[1] - P[1]) + sqr(Ro[2] - P[2]) - sqr(r);
@@ -494,12 +528,11 @@ double sphereIntersection(double* Ro, double* Rd, double* P, double r) {
   return -1;
 }
 
-double angularAttenuation(double* Vo, double* Vl, double a1, double angle) {
+double angularAttenuation(const double* Vo, const double* Vl, double a1, double angle) {
   if (a1 == INFINITY) {
     return 1;
   }
   double dotResult = dot(Vo, Vl);
-  printf("%lf\n", dotResult);
   if (acos(dotResult) > angle / 2) {
     return 0;
   } else {
@@ -518,27 +551,24 @@ double radialAttenuation(double a2, double a1, double a0, double d) {
   if (d == INFINITY) {
     return 1;
   } else {
-    printf("%lf\n", 1.0 / quotient);
+    //printf("%lf\n", 1.0 / quotient);
     return 1.0 / quotient;
   }
 }
 
-double diffuseReflection(double ka, double ia, double kd, double il, double* n, double* l) {
-  double dotResult = dot(n, l);
+double diffuseReflection(double Kd, double Il, const double* N, const double* L) {
+  double dotResult = dot(N, L);
   if (dotResult > 0) {
-    return ka * ia + kd * il * dotResult;
+    return Kd * Il * dotResult;
   } else {
-    return ka * ia;
+    return 0;
   }
 }
 
-double specularReflection(double ks, double il, double* v, double* r, double* n, double* l) {
-  double ns = 1;
-  double vrDot = dot(v, r);
-  double nlDot = dot(n, l);
-
-  if (vrDot > 0 && nlDot > 0) {
-    return ks * il * pow(vrDot, ns);
+double specularReflection(double Ks, double Il, const double* V, const double* R, const double* N, const double* L, double ns) {
+  double dotResult = dot(V, R);
+  if (dotResult > 0 && dot(N, L) > 0) {
+    return Ks * Il * pow(dotResult, ns);
   } else {
     return 0;
   }
@@ -637,53 +667,48 @@ void createScene(int width, int height) {
           }
 
           if (shadow == 0) {
-            double* N = malloc(sizeof(double) * 3);
+            double N[3];
             if (closestObject->kind == PLANE) {
-              N = closestObject->plane.normal;
+              N[0] = closestObject->plane.normal[0];
+              N[1] = closestObject->plane.normal[0];
+              N[2] = closestObject->plane.normal[0];
             } else if (closestObject->kind == SPHERE) {
               N[0] = RoNew[0] - closestObject->position[0];
               N[1] = RoNew[1] - closestObject->position[1];
               N[2] = RoNew[2] - closestObject->position[2];
             }
 
+            normalize(N);
             double* L = RdNew;
             normalize(L);
             double R[3];
             reflect(L, N, R);
-            double* V = Rd;
+            double V[3] = {
+              Rd[0],
+              Rd[1],
+              Rd[2]
+            };
 
-            double* pos = lights[i]->position;
+            double pos[3] = {
+              lights[i]->position[0],
+              lights[i]->position[1],
+              lights[i]->position[2]
+            };
             subtract(pos, RoNew);
             double d = magnitude(pos);
 
-            /*
-            if (lights[i]->direction[0] != 0 || lights[i]->direction[1] != 0 || lights[i]->direction[2] != 0) {
-              printf("%lf\n", acos(dot(LNeg, lights[i]->direction)));
-              if (acos(dot(LNeg, lights[i]->direction)) <= 0.3) {
-                color[0] = -(dot(LNeg, N)) * lights[i]->color[0];
-                color[1] = -(dot(LNeg, N)) * lights[i]->color[1];
-                color[2] = -(dot(LNeg, N)) * lights[i]->color[2];
-              }
-            } else {
-              color[0] = -(dot(LNeg, N)) * lights[i]->color[0];
-              color[1] = -(dot(LNeg, N)) * lights[i]->color[1];
-              color[2] = -(dot(LNeg, N)) * lights[i]->color[2];
-            }
-            */
             double col;
             for (int c = 0; c < 3; c++) {
               col = 1;
-              if (lights[i]->angularAtten != INFINITY) {
-                col *= angularAttenuation(L, lights[i]->direction, lights[i]->angularAtten, .523599);
+              if (lights[i]->angularAtten != INFINITY && lights[i]->theta != 0) {
+                col *= angularAttenuation(L, lights[i]->direction, lights[i]->angularAtten, degreesToRads(lights[i]->theta));
               }
               if (lights[i]->radialAtten[0] != INFINITY) {
                 col *= radialAttenuation(lights[i]->radialAtten[2], lights[i]->radialAtten[1], lights[i]->radialAtten[0], d);
               }
-              col *= (closestObject->diffuseColor[c] * lights[i]->color[c] * dot(N, L) + closestObject->specularColor[c] * lights[i]->color[c] * pow(dot(R, V), 50));
+              col *= (diffuseReflection(closestObject->diffuseColor[c], lights[i]->color[c], N, L) + (specularReflection(closestObject->specularColor[c], lights[i]->color[c], V, R, N, L, 20)));
               color[c] += col;
             }
-
-            free(N);
           }
         }
         if (closestObject != NULL) {
