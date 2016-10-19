@@ -293,6 +293,7 @@ void parseObject(FILE* json, int currentObject, int objectType) {
           for (int i = 0; i < 3; i++) {
             lights[currentObject]->color[i] = v[i];
           }
+          free(v);
         } else {
           fprintf(stderr, "Error: Improper object field on line %d", line);
           exit(1);
@@ -303,6 +304,7 @@ void parseObject(FILE* json, int currentObject, int objectType) {
           for (int i = 0; i < 3; i++) {
             objects[currentObject]->diffuseColor[i] = v[i];
           }
+          free(v);
         } else {
           fprintf(stderr, "Error: Improper object field on line %d", line);
           exit(1);
@@ -313,6 +315,7 @@ void parseObject(FILE* json, int currentObject, int objectType) {
           for (int i = 0; i < 3; i++) {
             objects[currentObject]->specularColor[i] = v[i];
           }
+          free(v);
         } else {
           fprintf(stderr, "Error: Improper object field on line %d", line);
           exit(1);
@@ -323,11 +326,13 @@ void parseObject(FILE* json, int currentObject, int objectType) {
           for (int i = 0; i < 3; i++) {
             objects[currentObject]->position[i] = v[i];
           }
+          free(v);
         } else if (objectType == LIGHT) {
           double* v = nextVector(json);
           for (int i = 0; i < 3; i++) {
             lights[currentObject]->position[i] = v[i];
           }
+          free(v);
         } else {
           fprintf(stderr, "Error: Improper object field on line %d", line);
           exit(1);
@@ -339,6 +344,7 @@ void parseObject(FILE* json, int currentObject, int objectType) {
           for (int i = 0; i < 3; i++) {
             objects[currentObject]->plane.normal[i] = v[i];
           }
+          free(v);
         } else {
           fprintf(stderr, "Error: Improper object field on line %d", line);
           exit(1);
@@ -350,6 +356,7 @@ void parseObject(FILE* json, int currentObject, int objectType) {
           for (int i = 0; i < 3; i++) {
             lights[currentObject]->direction[i] = v[i];
           }
+          free(v);
         } else {
           fprintf(stderr, "Error: Improper object field on line %d", line);
           exit(1);
@@ -529,10 +536,8 @@ double sphereIntersection(const double* Ro, const double* Rd, const double* P, d
 }
 
 double angularAttenuation(const double* Vo, const double* Vl, double a1, double angle) {
-  if (a1 == INFINITY) {
-    return 1;
-  }
   double dotResult = dot(Vo, Vl);
+  printf("%lf\n", acos(dotResult));
   if (acos(dotResult) > angle / 2) {
     return 0;
   } else {
@@ -541,9 +546,6 @@ double angularAttenuation(const double* Vo, const double* Vl, double a1, double 
 }
 
 double radialAttenuation(double a2, double a1, double a0, double d) {
-  if (a2 == INFINITY) {
-    return 0;
-  }
   double quotient = a2 * sqr(d) + a1 * d + a0;
   if (quotient == 0) {
     return 0;
@@ -685,6 +687,11 @@ void createScene(int width, int height) {
               RdNew[2]
             };
             normalize(L);
+            double LNeg[3] = {
+              -L[0],
+              -L[1],
+              -L[2]
+            };
             double R[3];
             reflect(L, N, R);
             double V[3] = {
@@ -705,7 +712,7 @@ void createScene(int width, int height) {
             for (int c = 0; c < 3; c++) {
               col = 1;
               if (lights[i]->angularAtten != INFINITY && lights[i]->theta != 0) {
-                col *= angularAttenuation(L, lights[i]->direction, lights[i]->angularAtten, degreesToRads(lights[i]->theta));
+                col *= angularAttenuation(LNeg, lights[i]->direction, lights[i]->angularAtten, degreesToRads(lights[i]->theta));
               }
               if (lights[i]->radialAtten[0] != INFINITY) {
                 col *= radialAttenuation(lights[i]->radialAtten[2], lights[i]->radialAtten[1], lights[i]->radialAtten[0], d);
