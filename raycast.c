@@ -770,6 +770,19 @@ int main(int argc, char* argv[]) {
 
   writeP6(argv[4], width, height);
 
+  free(camera[0]);
+  free(camera);
+
+  for (int i = 0; objects[i] != NULL; i++) {
+    free(objects[i]);
+  }
+  free(objects);
+
+  for (int i = 0; lights[i] != NULL; i++) {
+    free(lights[i]);
+  }
+  free(lights);
+
 #ifdef DEBUG
   displayObjects();
 #endif
