@@ -670,8 +670,8 @@ void createScene(int width, int height) {
             double N[3];
             if (closestObject->kind == PLANE) {
               N[0] = closestObject->plane.normal[0];
-              N[1] = closestObject->plane.normal[0];
-              N[2] = closestObject->plane.normal[0];
+              N[1] = closestObject->plane.normal[1];
+              N[2] = closestObject->plane.normal[2];
             } else if (closestObject->kind == SPHERE) {
               N[0] = RoNew[0] - closestObject->position[0];
               N[1] = RoNew[1] - closestObject->position[1];
@@ -679,7 +679,11 @@ void createScene(int width, int height) {
             }
 
             normalize(N);
-            double* L = RdNew;
+            double L[3] = {
+              RdNew[0],
+              RdNew[1],
+              RdNew[2]
+            };
             normalize(L);
             double R[3];
             reflect(L, N, R);
