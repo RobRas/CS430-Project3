@@ -511,15 +511,14 @@ void parseJSON(char* fileName) {
 }
 
 double planeIntersection(const double* Ro, const double* Rd, const double* P, const double* N) {
-  double d1[3] = {
-    Ro[0] - P[0],
-    Ro[1] - P[1],
-    Ro[2] - P[2]
-  };
-  double d = dot(N, d1);
   double Vd = dot(N, Rd);
   if (Vd == 0) return -1;
-  double Vo = -(dot(N, Ro) + d);
+  double dist[3] = {
+    P[0] - Ro[0],
+    P[1] - Ro[1],
+    P[2] - Ro[2]
+  };
+  double Vo = dot(dist, N);
   double t = Vo / Vd;
   if (t < 0) return -2;
   return t;
@@ -648,6 +647,8 @@ void createScene(int width, int height) {
             lights[i]->position[2] - RoNew[2]
           };
 
+          normalize(RdNew);
+
           int shadow = 0;
           for (int j = 0; objects[j] != NULL; j++) {
             double t = 0;
@@ -668,9 +669,6 @@ void createScene(int width, int height) {
                 exit(1);
             }
             if (t > 0 && t < magnitude(RdNew)) {
-              if (y == 0) {
-                printf("%d\n", j);
-              }
               shadow = 1;
               break;
             }
@@ -728,10 +726,6 @@ void createScene(int width, int height) {
               col *= (diffuseReflection(closestObject->diffuseColor[c], lights[i]->color[c], N, L) + (specularReflection(closestObject->specularColor[c], lights[i]->color[c], V, R, N, L, 20)));
               color[c] += col;
             }
-          } else {
-            if (y == 1) {
-              printf("%lf, %lf, %lf\n", RoNew[0], RoNew[1], RoNew[2]);
-            }
           }
         }
         if (closestObject != NULL) {
@@ -747,9 +741,6 @@ void createScene(int width, int height) {
         pixmap[(M - 1) * N - (y * N) + x].r = 0;
         pixmap[(M - 1) * N - (y * N) + x].g = 0;
         pixmap[(M - 1) * N - (y * N) + x].b = 0;
-      }
-      if (y == 0) {
-        // printf("\n");
       }
     }
   }
