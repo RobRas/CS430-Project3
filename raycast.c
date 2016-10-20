@@ -229,15 +229,17 @@ void parseObject(FILE* json, int currentObject, int objectType) {
     if (c == '}') {
       // Stop parsing this object
 
-      if (lights[currentObject]->radialAtten[0] != INFINITY || lights[currentObject]->radialAtten[1] != INFINITY || lights[currentObject]->radialAtten[2] != INFINITY) {
-        if (lights[currentObject]->radialAtten[0] == INFINITY) {
-          lights[currentObject]->radialAtten[0] = 0;
-        }
-        if (lights[currentObject]->radialAtten[1] == INFINITY) {
-          lights[currentObject]->radialAtten[1] = 0;
-        }
-        if (lights[currentObject]->radialAtten[2] == INFINITY) {
-          lights[currentObject]->radialAtten[2] = 1;
+      if (objectType == LIGHT) {
+        if (lights[currentObject]->radialAtten[0] != INFINITY || lights[currentObject]->radialAtten[1] != INFINITY || lights[currentObject]->radialAtten[2] != INFINITY) {
+          if (lights[currentObject]->radialAtten[0] == INFINITY) {
+            lights[currentObject]->radialAtten[0] = 0;
+          }
+          if (lights[currentObject]->radialAtten[1] == INFINITY) {
+            lights[currentObject]->radialAtten[1] = 0;
+          }
+          if (lights[currentObject]->radialAtten[2] == INFINITY) {
+            lights[currentObject]->radialAtten[2] = 1;
+          }
         }
       }
       break;
@@ -509,7 +511,12 @@ void parseJSON(char* fileName) {
 }
 
 double planeIntersection(const double* Ro, const double* Rd, const double* P, const double* N) {
-  double d = -dot(N, P);
+  double d1[3] = {
+    Ro[0] - P[0],
+    Ro[1] - P[1],
+    Ro[2] - P[2]
+  };
+  double d = dot(N, d1);
   double Vd = dot(N, Rd);
   if (Vd == 0) return -1;
   double Vo = -(dot(N, Ro) + d);
@@ -552,7 +559,6 @@ double radialAttenuation(double a2, double a1, double a0, double d) {
   if (d == INFINITY) {
     return 1;
   } else {
-    //printf("%lf\n", 1.0 / quotient);
     return 1.0 / quotient;
   }
 }
@@ -662,6 +668,9 @@ void createScene(int width, int height) {
                 exit(1);
             }
             if (t > 0 && t < magnitude(RdNew)) {
+              if (y == 0) {
+                printf("%d\n", j);
+              }
               shadow = 1;
               break;
             }
@@ -719,6 +728,10 @@ void createScene(int width, int height) {
               col *= (diffuseReflection(closestObject->diffuseColor[c], lights[i]->color[c], N, L) + (specularReflection(closestObject->specularColor[c], lights[i]->color[c], V, R, N, L, 20)));
               color[c] += col;
             }
+          } else {
+            if (y == 1) {
+              printf("%lf, %lf, %lf\n", RoNew[0], RoNew[1], RoNew[2]);
+            }
           }
         }
         if (closestObject != NULL) {
@@ -734,6 +747,9 @@ void createScene(int width, int height) {
         pixmap[(M - 1) * N - (y * N) + x].r = 0;
         pixmap[(M - 1) * N - (y * N) + x].g = 0;
         pixmap[(M - 1) * N - (y * N) + x].b = 0;
+      }
+      if (y == 0) {
+        // printf("\n");
       }
     }
   }
